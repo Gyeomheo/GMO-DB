@@ -1,0 +1,7 @@
+# .gitignore
+3_Config/*.xlsx     # 매핑용 마스터 엑셀 제외
+3_Config/*.text
+3_Config/*.json     # 생성된 캐시 제외
+2_Output/           # 로컬 출력 폴더 제외
+.streamlit/         # 개인 설정 제외
+__pycache__/        # 파이썬 캐시 제외
