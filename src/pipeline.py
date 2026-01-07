@@ -17,6 +17,63 @@ from typing import Tuple
 from . import config
 
 # =========================================================
+# [Entry Point] app.py와 연결되는 통합 스마트 프로세스
+# =========================================================
+def run_smart_process(file_obj, division: str) -> pd.DataFrame:
+    """
+    [Architect Note] app.py의 요청을 받아 전체 클렌징 과정을 총괄함.
+    1. 파일 로드 및 위생 처리
+    2. 매핑 데이터 로드 (converter 활용)
+    3. 사업부별 맞춤형 파이프라인 가동
+    4. 검증용 컬럼 삽입 및 최종 포맷팅
+    """
+    from . import converter, utils, config
+    
+    # 1. 파일 로드 (utils 활용)
+    df_raw = utils.load_csv_safely(file_obj)
+    if df_raw is None:
+        return pd.DataFrame()
+
+    # 2. 매핑 데이터 로드 (JSON 캐시 활용)
+    # 미디어 매핑은 공통
+    df_map_media = converter.load_map_from_json(config.MEDIA_MAP_JSON, config.MEDIA_COLS_MAP)
+
+    # 3. 파이프라인 가동
+    # Step 1: 공통 미디어 클렌징
+    df_step1, _ = run_cleansing_pipeline(df_raw, df_map_media, config.MEDIA_COLS_MAP, is_media=True)
+    
+    # Step 2: 사업부별 제품 클렌징 분기
+    if division == "MX":
+        df_map_mx = converter.load_map_from_json(config.PRODUCT_MX_JSON, config.PRODUCT_COLS_MAP_MX)
+        df_step2, _ = run_cleansing_pipeline(df_step1, df_map_mx, config.PRODUCT_COLS_MAP_MX)
+        
+        # 유틸리티 및 포맷팅
+        df_step2 = process_subsidiary_column(df_step2)
+        df_step2 = process_mindset_column(df_step2)
+        df_step2 = process_funding_column(df_step2)
+        df_final = process_metric_columns(df_step2)
+        
+        # [Verification Mode] 화면 출력을 위해 정제된 값과 원본을 나란히 배치
+        return insert_cleaned_left_of_raw(df_final)
+
+    else: # CE 사업부
+        df_map_ce = converter.load_map_from_json(config.PRODUCT_CE_JSON, config.PRODUCT_COLS_MAP_CE)
+        df_step2, _ = run_ce_product_cleansing(df_step1, df_map_ce, config.PRODUCT_COLS_MAP_CE)
+        
+        # CE 전용 BU 할당 및 정규화
+        df_step2 = assign_ce_division(df_step2, df_raw, config.DIV_RULES, config.AMBIGUOUS_CATS)
+        df_step2 = process_subsidiary_column(df_step2)
+        df_step2 = process_mindset_column(df_step2)
+        df_step2 = process_funding_column(df_step2)
+        df_final = process_metric_columns(df_step2)
+        
+        return insert_cleaned_left_of_raw(df_final)
+
+# (기존에 작성된 sanitize_column_headers, fast_normalize_text, 
+#  run_cleansing_pipeline, run_ce_product_cleansing 등의 함수들이 이 아래에 위치합니다.)
+
+
+# =========================================================
 # 0. [Optimized] 컬럼명 위생 처리 (Vectorized)
 # =========================================================
 def sanitize_column_headers(df: pd.DataFrame) -> pd.DataFrame:
