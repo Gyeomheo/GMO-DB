@@ -13,3 +13,14 @@ pyarrow==22.0.0             # BigQuery 고속 데이터 전송용 엔진
 sqlalchemy==2.0.45          # DB 트랜잭션 및 쿼리 관리
 sqlalchemy-bigquery==1.16.0 # SQLAlchemy용 BigQuery Dialect
 db-dtypes==1.5.0            # Pandas와 BigQuery 데이터 타입 매핑 필수
+
+streamlit
+pandas
+numpy
+google-cloud-bigquery
+google-auth
+sqlalchemy
+sqlalchemy-bigquery
+plotly
+openpyxl
+pyarrow
