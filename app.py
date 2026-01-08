@@ -58,7 +58,7 @@ def main():
 
     # Sidebar Navigation
     with st.sidebar:
-        st.markdown("### 🛰️ GMO Control Tower")
+        st.markdown("### 🛰️ GMO Data Hub")
         st.caption(f"Project: {os.environ['GOOGLE_CLOUD_PROJECT']}")
         if st.button("Logout", use_container_width=True):
             st.session_state["password_correct"] = False
@@ -67,8 +67,7 @@ def main():
         app_mode = st.radio("NAVIGATION", 
             ["Submission Dashboard", "Weekly Report Cleansing", "Weekly Report Submission", "Data Report"],
             index=0)
-        st.info("Pro Mode: Enabled (Smart Drift Detection)")
-
+        
     # Header Helper
     def render_inline_header(title, subtitle, select_key):
         h_col, s_col = st.columns([7, 3])
@@ -80,17 +79,18 @@ def main():
 
     # [1] Submission Dashboard
     if app_mode == "Submission Dashboard":
-        selected_div = render_inline_header("Submission Status", "본부별 주차 데이터 적재 현황을 모니터링합니다.", "dash_div")
+        selected_div = render_inline_header("Submission Status", "주차별 데이터 현황 모니터링", "dash_div")
         engine.render_dashboard_ui(selected_div)
 
     # [2] Data Cleansing
     elif app_mode == "Weekly Report Cleansing":
-        selected_div = render_inline_header("Data Cleansing", "Source 데이터를 Standard 규격으로 정제합니다.", "cln_div")
+        selected_div = render_inline_header("Data Cleansing",  "법인 Raw data 클렌징.", "cln_div")
         uploaded_file = st.file_uploader("Upload Source (CSV/XLSX)", type=['csv', 'xlsx'])
         
         if uploaded_file:
             if st.button("Execute Pipeline", use_container_width=True, type="primary"):
                 with st.spinner("Processing Business Logic..."):
+                    # pipeline 내부의 load_csv_safely에서 UploadedFile 스트림을 직접 처리함
                     df_cleaned = pipeline.run_smart_process(uploaded_file, selected_div)
                     st.success("Validation & Mapping Complete.")
                     st.dataframe(df_cleaned.head(100), use_container_width=True)
@@ -100,7 +100,7 @@ def main():
 
     # [3] Data Upload (Smart Sync)
     elif app_mode == "Weekly Report Submission":
-        selected_div = render_inline_header("Weekly Report Submission", "데이터 불일치 지점을 탐색하여 스마트 리프레시를 실행합니다.", "up_div")
+        selected_div = render_inline_header("Weekly Report Submission", "데이터 취합", "up_div")
         uploaded_cleaned = st.file_uploader("Upload Validated CSV", type=['csv'])
         
         if uploaded_cleaned:
@@ -121,22 +121,24 @@ def main():
                             st.info("✅ No changes detected. Database is already consistent with the upload file.")
                             
                     except ValueError as ve:
-                        # [Pro Engine] 검증 실패 시 에러 처리
+                        # engine.py에서 raise ValueError("message", error_df)로 던진 인자 2개를 언팩
                         st.error("❌ Validation Failed: Standard 기준에 어긋나는 데이터가 발견되었습니다.")
-                        # ValueError의 두 번째 인자인 DataFrame(error_logs) 추출
-                        _, error_df = ve.args
-                        st.dataframe(error_df, use_container_width=True)
-                        
-                        err_csv = error_df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button("📥 Download Error Report for Correction", data=err_csv, 
-                                         file_name=f"ERR_{selected_div}_{datetime.now().strftime('%H%M%S')}.csv", 
-                                         mime='text/csv', use_container_width=True)
+                        if len(ve.args) > 1:
+                            error_df = ve.args[1]
+                            st.dataframe(error_df, use_container_width=True)
+                            
+                            err_csv = error_df.to_csv(index=False, encoding='utf-8-sig')
+                            st.download_button("📥 Download Error Report", data=err_csv, 
+                                             file_name=f"ERR_{selected_div}_{datetime.now().strftime('%H%M%S')}.csv", 
+                                             mime='text/csv', use_container_width=True)
+                        else:
+                            st.error(str(ve))
                     except Exception as e:
                         st.error(f"❌ System Error: {str(e)}")
 
-    # [4] Data Report
+    # [4] Data Report (Cost-Optimized & Reliable Download)
     elif app_mode == "Data Report":
-        selected_div = render_inline_header("Data Report", "BigQuery 마스터 DB에서 기간별 데이터를 추출합니다.", "dl_div")
+        selected_div = render_inline_header("Data Report", "데이터 다운로드", "dl_div")
         
         with st.container():
             st.markdown("<p class='filter-label'>📅 Extraction Period</p>", unsafe_allow_html=True)
@@ -152,16 +154,25 @@ def main():
                 st.error("Error: Start date cannot be later than end date.")
             else:
                 with st.spinner("Querying Master Database..."):
+                    # 리팩토링된 엔진은 데이터가 없어도 스키마 헤더가 포함된 DF를 반환함
                     df_report = engine.get_report_df(selected_div, start_date, end_date)
                     
+                    fname = f"REPORT_{selected_div}_{datetime.now().strftime('%Y%m%d')}.csv"
+                    
                     if df_report.empty:
-                        st.warning(f"Notice: No records found for {selected_div} between {start_date} and {end_date}.")
+                        st.warning(f"⚠️ {selected_div} 본부의 해당 기간 데이터가 DB에 없습니다.")
                     else:
                         st.success(f"Successfully retrieved {len(df_report):,} records.")
-                        csv_data = df_report.to_csv(index=False, encoding='utf-8-sig')
-                        fname = f"REPORT_{selected_div}_{start_date.strftime('%Y%m%d')}.csv"
-                        st.download_button(label=f"💾 Download {fname}", data=csv_data, 
-                                         file_name=fname, mime='text/csv', use_container_width=True)
+                    
+                    # [Architect Logic] 데이터 유무와 상관없이 상시 다운로드 버튼 활성화
+                    csv_data = df_report.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label=f"📥 {selected_div} 리포트 다운로드 (CSV)",
+                        data=csv_data,
+                        file_name=fname,
+                        mime='text/csv',
+                        use_container_width=True
+                    )
 
 if __name__ == "__main__":
     main()
