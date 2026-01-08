@@ -58,7 +58,7 @@ def main():
 
     # Sidebar Navigation
     with st.sidebar:
-        st.markdown("### 🛰️ GMO Data Hub")
+        st.markdown("### GMO Data Hub")
         st.caption(f"Project: {os.environ['GOOGLE_CLOUD_PROJECT']}")
         if st.button("Logout", use_container_width=True):
             st.session_state["password_correct"] = False
@@ -85,7 +85,7 @@ def main():
     # [2] Data Cleansing
     elif app_mode == "Weekly Report Cleansing":
         selected_div = render_inline_header("Data Cleansing",  "법인 Raw data 클렌징.", "cln_div")
-        uploaded_file = st.file_uploader("Upload Source (CSV/XLSX)", type=['csv', 'xlsx'])
+        uploaded_file = st.file_uploader("Upload Source (CSV)", type=['csv'])
         
         if uploaded_file:
             if st.button("Execute Pipeline", use_container_width=True, type="primary"):
