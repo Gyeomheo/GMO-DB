@@ -6,40 +6,29 @@ import re
 from pathlib import Path
 from typing import Union, Optional
 
-def load_csv_safely(file_path: Union[str, Path], header=0) -> Optional[pd.DataFrame]:
+def load_csv_safely(file_obj):
     """
-    CSV 안전 로드 (권한 에러 방어, Path 객체 지원, 인코딩 자동 탐지)
+    [Fix] Streamlit UploadedFile 객체와 로컬 경로 모두 대응하도록 수정
     """
-    path_obj = Path(file_path) # 타입 정규화
-    
-    if not path_obj.exists():
-        logging.error(f"❌ 파일이 존재하지 않습니다: {path_obj}")
-        return None
+    try:
+        # 1. 파일 이름 추출 (UploadedFile 혹은 문자열 경로 대응)
+        file_name = getattr(file_obj, 'name', str(file_obj))
+        ext = file_name.split('.')[-1].lower()
 
-    encodings = ['utf-8-sig', 'cp949']
-    
-    for enc in encodings:
-        try:
-            # low_memory=False: 타입 추론 정확도 우선
-            df = pd.read_csv(path_obj, encoding=enc, header=header, low_memory=False)
-            
-            # 불필요한 시스템 컬럼 제거
-            cols = [c for c in df.columns if not str(c).startswith('Unnamed:') and not str(c).startswith('Colonne')]
-            return df[cols].copy()
-            
-        except UnicodeDecodeError:
-            continue
-            
-        except PermissionError:
-            logging.error(f"⛔ 권한 거부: '{path_obj.name}' 파일이 엑셀에서 열려있지 않은지 확인해주세요.")
-            return None
-            
-        except Exception as e:
-            logging.error(f"CSV 로드 실패 ({path_obj.name}): {e}")
-            return None
-            
-    logging.error(f"❌ 모든 인코딩 시도 실패: {path_obj.name}")
-    return None
+        # 2. 파일 스트림의 위치를 처음으로 리셋 (재읽기 대비)
+        if hasattr(file_obj, 'seek'):
+            file_obj.seek(0)
+
+        # 3. 확장자에 따른 로드 (경로가 아닌 파일 객체 자체를 전달)
+        if ext in ['xlsx', 'xls']:
+            return pd.read_excel(file_obj, engine='openpyxl')
+        else:
+            # CSV 로드 (encoding 에러 방지를 위해 utf-8-sig 권장)
+            return pd.read_csv(file_obj, encoding='utf-8-sig')
+
+    except Exception as e:
+        logging.error(f"❌ 파일 로드 실패: {e}")
+        raise ValueError(f"파일을 읽을 수 없습니다: {str(e)}")
 
 def process_and_filter_dates(df: pd.DataFrame, date_col: str = 'Date') -> pd.DataFrame:
     """
