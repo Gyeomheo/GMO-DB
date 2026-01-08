@@ -146,30 +146,57 @@ def render_dashboard_ui(division: str):
     else: st.info("💡 데이터가 없습니다.")
 
 def get_report_df(division: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
-    """[Cost-Optimized Report] 필수 컬럼만 선택하여 쿼리량 최소화"""
+    """
+    [DB-Linked Report Engine] 
+    데이터가 0건이어도 DB 스키마와 연계된 표준 헤더 파일을 반환합니다.
+    """
     engine_inst = get_engine()
+    
+    # 1. 본부별 표준 출력 스키마 결정 (config 참조)
     output_schema = config.MX_OUTPUT_COLS if division == "MX" else config.CE_OUTPUT_COLS
     
-    # [비용절감 3] 출력 스키마에 정의된 컬럼 이름만 SQL 친화적으로 변환하여 SELECT 절 구성
-    mapping_rev = {'Subsidiary': 'subsidiary', 'Date': 'date', 'Week': 'week', 'Media Spend (USD)': 'media_spend_usd', 'Revenue': 'revenue', 'Impressions': 'impressions', 'Clicks': 'clicks', 'Orders': 'orders', 'Funding': 'funding', 'BU': 'bu', 'Product Category': 'product_category'}
-    select_items = []
-    for col in output_schema:
-        clean_col = mapping_rev.get(col, col.lower().replace(" ", "_").replace("(", "").replace(")", ""))
-        select_items.append(f"{clean_col}")
+    # 2. 비용 절감을 위한 컬럼 매핑 (DB snake_case <-> UI PascalCase)
+    mapping_rev = {
+        'Subsidiary': 'subsidiary', 'Date': 'date', 'Week': 'week', 
+        'Media Spend (USD)': 'media_spend_usd', 'Revenue': 'revenue', 
+        'Impressions': 'impressions', 'Clicks': 'clicks', 'Orders': 'orders',
+        'Funding': 'funding', 'BU': 'bu', 'Product Category': 'product_category'
+    }
     
-    # 중복 제거 및 콤마 결합
+    # 3. SELECT 절 동적 구성 (비용 절감 핵심)
+    # 스키마에 정의된 컬럼만 골라서 읽음
+    select_items = [mapping_rev.get(c, c.lower().replace(" ", "_").replace("(", "").replace(")", "")) for c in output_schema]
     select_clause = ", ".join(list(dict.fromkeys(select_items)))
     
-    query = text(f"SELECT {select_clause} FROM `{engine_inst.table_ref}` WHERE division_code = :div AND date >= :start AND date <= :end ORDER BY date DESC")
+    # 4. 파티션(Date) 필터를 통한 쿼리 실행
+    query = text(f"""
+        SELECT {select_clause} 
+        FROM `{engine_inst.table_ref}` 
+        WHERE division_code = :div 
+          AND date >= :start AND date <= :end 
+        ORDER BY date DESC
+    """)
+    
     with engine_inst.db_engine.connect() as conn:
-        df_raw = pd.read_sql(query, conn, params={"div": division, "start": start_date.strftime('%Y-%m-%d'), "end": end_date.strftime('%Y-%m-%d')})
+        df_raw = pd.read_sql(query, conn, params={
+            "div": division, 
+            "start": start_date.strftime('%Y-%m-%d'), 
+            "end": end_date.strftime('%Y-%m-%d')
+        })
     
-    if df_raw.empty: return pd.DataFrame(columns=output_schema)
-    
-    # DB 컬럼명을 다시 UI용으로 매핑
+    # [핵심 리팩토링 지점] 데이터가 0건이어도 DB 구조(output_schema)를 입힌 DF 반환
+    # 이를 통해 app.py에서 에러 없이 CSV 생성이 가능해짐
+    if df_raw.empty:
+        logging.info(f"💡 {division} DB 조회 결과 0건. 표준 스키마로 빈 파일 생성 준비.")
+        return pd.DataFrame(columns=output_schema)
+
+    # 5. DB 컬럼명을 다시 UI 표준 명칭으로 복원 (Mapping back to UI)
     mapping_ui = {v: k for k, v in mapping_rev.items()}
     df_mapped = df_raw.rename(columns=mapping_ui)
+    
+    # 6. CE 본부 특화 처리 (Optional 컬럼명 보정)
     if division == "CE" and "Products" in df_mapped.columns:
         df_mapped = df_mapped.rename(columns={"Products": "Products (Optional)"})
     
+    # 7. 최종 스키마 순서로 정렬하여 반환
     return df_mapped[[c for c in output_schema if c in df_mapped.columns]]
