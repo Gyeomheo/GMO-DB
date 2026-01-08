@@ -11,7 +11,7 @@ os.environ["GOOGLE_CLOUD_PROJECT"] = "gmo-weekly"
 
 # [Page Configuration]
 st.set_page_config(
-    page_title="GMO Data Hub | Advanced Sync System",
+    page_title="GMO Data Hub",
     page_icon="📊",
     layout="wide"
 )
