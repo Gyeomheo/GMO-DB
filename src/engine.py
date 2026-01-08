@@ -201,19 +201,32 @@ def render_dashboard_ui(division: str):
         st.plotly_chart(fig, use_container_width=True)
     else: st.info("💡 적재된 데이터가 없습니다.")
 
-def get_report_df(division: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
-    query = text(f"SELECT * FROM `{get_engine().table_ref}` WHERE division_code = :div AND date >= :start AND date <= :end ORDER BY date DESC")
-    with get_engine().db_engine.connect() as conn:
-        df_raw = pd.read_sql(query, conn, params={"div": division, "start": start_date.strftime('%Y-%m-%d'), "end": end_date.strftime('%Y-%m-%d')})
-    if df_raw.empty: return pd.DataFrame(columns=config.MX_OUTPUT_COLS if division == "MX" else config.CE_OUTPUT_COLS)
-    mapping = {
-        'subsidiary': 'Subsidiary', 'sales_channel': 'Sales Channel', 'partner': 'Partner',
-        'media_type_1': 'Media Type 1', 'media_type_2': 'Media Type 2', 'media_platform': 'Media Platform',
-        'funding': 'Funding', 'bu': 'BU', 'product_category': 'Product Category',
-        'product_series': 'Product Series', 'products': 'Products', 'campaign_name': 'Campaign Name',
-        'mindset': 'Mindset', 'quarter': 'Quarter', 'month': 'Month', 'week': 'Week', 'date': 'Date',
-        'media_spend_usd': 'Media Spend (USD)', 'impressions': 'Impressions', 'clicks': 'Clicks', 'orders': 'Orders', 'revenue': 'Revenue'
-    }
-    df_mapped = df_raw.rename(columns=mapping)
-    output_schema = config.MX_OUTPUT_COLS if division == "MX" else config.CE_OUTPUT_COLS
-    return df_mapped[[c for c in output_schema if c in df_mapped.columns]]
+def get_report_df(self, division: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+        query = text(f"SELECT * FROM `{self.table_ref}` WHERE division_code = :div AND date >= :start AND date <= :end ORDER BY date DESC")
+        with self.db_engine.connect() as conn:
+            df_raw = pd.read_sql(query, conn, params={"div": division, "start": start_date.strftime('%Y-%m-%d'), "end": end_date.strftime('%Y-%m-%d')})
+        
+        if df_raw.empty: 
+            return pd.DataFrame(columns=config.MX_OUTPUT_COLS if division == "MX" else config.CE_OUTPUT_COLS)
+        
+        # [Fix] 컬럼 매핑 최적화 (CE 본부의 Optional 컬럼명 대응)
+        mapping = {
+            'subsidiary': 'Subsidiary', 'sales_channel': 'Sales Channel', 'partner': 'Partner',
+            'media_type_1': 'Media Type 1', 'media_type_2': 'Media Type 2', 'media_platform': 'Media Platform',
+            'funding': 'Funding', 'bu': 'BU', 'product_category': 'Product Category',
+            'product_series': 'Product Series', 'products': 'Products', 'campaign_name': 'Campaign Name',
+            'mindset': 'Mindset', 'quarter': 'Quarter', 'month': 'Month', 'week': 'Week', 'date': 'Date',
+            'media_spend_usd': 'Media Spend (USD)', 'impressions': 'Impressions', 'clicks': 'Clicks', 'orders': 'Orders', 'revenue': 'Revenue'
+        }
+        
+        df_mapped = df_raw.rename(columns=mapping)
+
+        # [Logic 추가] CE 본부 전용 컬럼명 보정 (config 스펙 강제 일치)
+        if division == "CE" and "Products" in df_mapped.columns:
+            df_mapped = df_mapped.rename(columns={"Products": "Products (Optional)"})
+        
+        output_schema = config.MX_OUTPUT_COLS if division == "MX" else config.CE_OUTPUT_COLS
+        
+        # 존재하지 않는 컬럼은 무시하고, 스키마에 정의된 순서대로 추출
+        existing_cols = [c for c in output_schema if c in df_mapped.columns]
+        return df_mapped[existing_cols]
