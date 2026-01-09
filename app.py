@@ -79,12 +79,12 @@ def main():
 
     # [1] Submission Dashboard
     if app_mode == "Submission Dashboard":
-        selected_div = render_inline_header("Submission Status", "주차별 데이터 현황 모니터링", "dash_div")
+        selected_div = render_inline_header("Submission Status", "법인별 데이터 수급 현황 모니터링", "dash_div")
         engine.render_dashboard_ui(selected_div)
 
     # [2] Data Cleansing
     elif app_mode == "Weekly Report Cleansing":
-        selected_div = render_inline_header("Data Cleansing",  "법인 Raw data 클렌징.", "cln_div")
+        selected_div = render_inline_header("Data Cleansing",  "법인 Raw Data 클렌징", "cln_div")
         uploaded_file = st.file_uploader("Upload Source (CSV)", type=['csv'])
         
         if uploaded_file:
@@ -160,7 +160,7 @@ def main():
                     fname = f"REPORT_{selected_div}_{datetime.now().strftime('%Y%m%d')}.csv"
                     
                     if df_report.empty:
-                        st.warning(f"⚠️ {selected_div} 본부의 해당 기간 데이터가 DB에 없습니다.")
+                        st.warning(f"⚠️ {selected_div} 사업부의 해당 기간 데이터가 DB에 없습니다.")
                     else:
                         st.success(f"Successfully retrieved {len(df_report):,} records.")
                     
