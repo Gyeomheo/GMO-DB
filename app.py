@@ -60,9 +60,6 @@ def main():
     with st.sidebar:
         st.markdown("### GMO Data Hub")
         st.caption(f"Project: {os.environ['GOOGLE_CLOUD_PROJECT']}")
-        if st.button("Logout", use_container_width=True):
-            st.session_state["password_correct"] = False
-            st.rerun()
         st.divider()
         app_mode = st.radio("NAVIGATION", 
             ["Submission Dashboard", "Weekly Report Cleansing", "Weekly Report Submission", "Data Report"],
@@ -121,7 +118,6 @@ def main():
                             st.info("✅ No changes detected. Database is already consistent with the upload file.")
                             
                     except ValueError as ve:
-                        # engine.py에서 raise ValueError("message", error_df)로 던진 인자 2개를 언팩
                         st.error("❌ Validation Failed: Standard 기준에 어긋나는 데이터가 발견되었습니다.")
                         if len(ve.args) > 1:
                             error_df = ve.args[1]
