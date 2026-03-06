@@ -4,6 +4,7 @@ import hmac
 import os
 import logging
 import base64
+import html
 from datetime import datetime
 from src import pipeline, engine, config, utils
 
@@ -163,9 +164,10 @@ def main():
                     auto_key = f"{uploaded_file.name}:{selected_div}:{len(df_cleaned)}:{date_str}"
                     if st.session_state.get("_last_auto_download_key") != auto_key:
                         b64 = base64.b64encode(csv_bytes).decode('ascii')
+                        safe_download_name = html.escape(download_name, quote=True)
                         st.markdown(
                             f"""
-                            <a id=\"auto-clean-download\" href=\"data:text/csv;base64,{b64}\" download=\"{download_name}\"></a>
+                            <a id=\"auto-clean-download\" href=\"data:text/csv;base64,{b64}\" download=\"{safe_download_name}\"></a>
                             <script>
                             const link = document.getElementById('auto-clean-download');
                             if (link) {{ link.click(); }}
@@ -252,6 +254,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
