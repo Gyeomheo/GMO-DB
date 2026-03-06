@@ -54,20 +54,20 @@ def run_smart_process(file_obj, division: str) -> pd.DataFrame:
     df_step1, _ = run_cleansing_pipeline(df_raw, df_map_media, config.MEDIA_COLS_MAP, is_media=True)
 
     # 3. 사업부별 제품 클렌징
-    # BU 컬럼 "존재"가 아니라 BU "값"으로 division을 감지
-    detected_division = division
+    # [Rule]
+    # 1) BU 컬럼 존재 여부 확인
+    # 2) BU 값이 VD/DA면 CE, MX면 MX
+    # 3) BU 정보가 없으면 MX 기본
+    detected_division = 'MX'
     if config.COL_BU in df_raw.columns:
         bu_norm = df_raw[config.COL_BU].fillna('').astype(str).str.strip().str.upper()
         bu_non_empty = bu_norm[bu_norm != '']
 
         if not bu_non_empty.empty:
-            if bu_non_empty.isin(['MX']).all():
-                detected_division = 'MX'
-            elif bu_non_empty.isin(['DA', 'VD', 'CE']).all():
+            if bu_non_empty.isin(['VD', 'DA']).any():
                 detected_division = 'CE'
-            elif bu_non_empty.isin(['MX', 'DA', 'VD', 'CE']).all():
-                mx_ratio = (bu_non_empty == 'MX').mean()
-                detected_division = 'MX' if mx_ratio >= 0.5 else 'CE'
+            elif bu_non_empty.isin(['MX']).any():
+                detected_division = 'MX'
 
     if division != detected_division:
         logging.warning(
@@ -625,6 +625,8 @@ def insert_cleaned_left_of_raw(df: pd.DataFrame) -> pd.DataFrame:
             
     if cleaned_set: final_order.extend(list(cleaned_set))
     return df[final_order]
+
+
 
 
 
