@@ -1,4 +1,4 @@
-"""
+﻿"""
 [Pipeline Logic - Architect Refactored Version]
 - Core: Regex Optimization, Full Vectorized Normalization (No Loops)
 - MX: Priority Scoring System (Visualized), Multi-Pattern Rescue
@@ -27,47 +27,78 @@ def run_smart_process(file_obj, division: str) -> pd.DataFrame:
     3. 사업부별 맞춤형 파이프라인 가동
     4. 검증용 컬럼 삽입 및 최종 포맷팅
     """
-    from . import converter, utils, config
-    
-    # 1. 파일 로드 (utils 활용)
+    from . import converter, utils, config, reporting
+
+    # 1. 파일 로드 및 공통 전처리 (run.py와 동일 순서)
     df_raw = utils.load_csv_safely(file_obj)
-    if df_raw is None:
+    if df_raw is None or df_raw.empty:
         return pd.DataFrame()
 
-    # 2. 매핑 데이터 로드 (JSON 캐시 활용)
-    # 미디어 매핑은 공통
-    df_map_media = converter.load_map_from_json(config.MEDIA_MAP_JSON, config.MEDIA_COLS_MAP)
+    df_raw = sanitize_column_headers(df_raw)
+    df_raw = process_subsidiary_column(df_raw, config.COL_SUB)
+    df_raw = utils.process_and_filter_dates(df_raw, config.COL_DATE)
+    if df_raw.empty:
+        logging.warning("  -> 유효한 날짜 데이터가 없어 결과를 생성하지 않습니다.")
+        return pd.DataFrame()
 
-    # 3. 파이프라인 가동
-    # Step 1: 공통 미디어 클렌징
+    df_raw = process_metric_columns(df_raw)
+    df_raw_original = df_raw.copy()
+
+    if 'Product Category2' in df_raw.columns:
+        df_raw.rename(columns={'Product Category2': 'Product Category'}, inplace=True)
+    if 'Products (optional)' in df_raw.columns:
+        df_raw.rename(columns={'Products (optional)': 'Products'}, inplace=True)
+
+    # 2. 매핑 데이터 로드
+    df_map_media = converter.load_map_from_json(config.MEDIA_MAP_JSON, config.MEDIA_COLS_MAP)
     df_step1, _ = run_cleansing_pipeline(df_raw, df_map_media, config.MEDIA_COLS_MAP, is_media=True)
-    
-    # Step 2: 사업부별 제품 클렌징 분기
-    if division == "MX":
+
+    # 3. 사업부별 제품 클렌징
+    # BU 컬럼 "존재"가 아니라 BU "값"으로 division을 감지
+    detected_division = division
+    if config.COL_BU in df_raw.columns:
+        bu_norm = df_raw[config.COL_BU].fillna('').astype(str).str.strip().str.upper()
+        bu_non_empty = bu_norm[bu_norm != '']
+
+        if not bu_non_empty.empty:
+            if bu_non_empty.isin(['MX']).all():
+                detected_division = 'MX'
+            elif bu_non_empty.isin(['DA', 'VD', 'CE']).all():
+                detected_division = 'CE'
+            elif bu_non_empty.isin(['MX', 'DA', 'VD', 'CE']).all():
+                mx_ratio = (bu_non_empty == 'MX').mean()
+                detected_division = 'MX' if mx_ratio >= 0.5 else 'CE'
+
+    if division != detected_division:
+        logging.warning(
+            f"  -> Division 선택값({division})과 데이터 감지값({detected_division})이 다릅니다. "
+            f"데이터 기준 분기({detected_division})를 적용합니다."
+        )
+
+    if detected_division == "MX":
         df_map_mx = converter.load_map_from_json(config.PRODUCT_MX_JSON, config.PRODUCT_COLS_MAP_MX)
         df_step2, _ = run_cleansing_pipeline(df_step1, df_map_mx, config.PRODUCT_COLS_MAP_MX)
-        
-        # 유틸리티 및 포맷팅
-        df_step2 = process_subsidiary_column(df_step2)
-        df_step2 = process_mindset_column(df_step2)
-        df_step2 = process_funding_column(df_step2)
-        df_final = process_metric_columns(df_step2)
-        
-        # [Verification Mode] 화면 출력을 위해 정제된 값과 원본을 나란히 배치
-        return insert_cleaned_left_of_raw(df_final)
 
-    else: # CE 사업부
+        df_cleaned_final = df_step2.copy()
+        df_cleaned_final[config.COL_BU] = 'MX'
+        df_cleaned_final = process_mindset_column(df_cleaned_final, 'Mindset')
+        df_cleaned_final = process_funding_column(df_cleaned_final, 'Funding')
+    else:
         df_map_ce = converter.load_map_from_json(config.PRODUCT_CE_JSON, config.PRODUCT_COLS_MAP_CE)
         df_step2, _ = run_ce_product_cleansing(df_step1, df_map_ce, config.PRODUCT_COLS_MAP_CE)
-        
-        # CE 전용 BU 할당 및 정규화
-        df_step2 = assign_ce_division(df_step2, df_raw, config.DIV_RULES, config.AMBIGUOUS_CATS)
-        df_step2 = process_subsidiary_column(df_step2)
-        df_step2 = process_mindset_column(df_step2)
-        df_step2 = process_funding_column(df_step2)
-        df_final = process_metric_columns(df_step2)
-        
-        return insert_cleaned_left_of_raw(df_final)
+        df_cleaned_final = assign_ce_division(df_step2, df_raw_original, config.DIV_RULES, config.AMBIGUOUS_CATS)
+
+    # 4. 변경 요약 생성 (run.py와 동일)
+    summary_prod = reporting.create_change_summary(df_raw_original, df_cleaned_final, config.PRODUCT_COLS)
+    summary_media = reporting.create_change_summary(df_raw_original, df_cleaned_final, config.MEDIA_COLS)
+
+    # 5. 최종 클렌징 결과 포맷 (run.py의 Cleaned_Result와 동일)
+    result_df = insert_cleaned_left_of_raw(df_cleaned_final.copy())
+    result_df.attrs['detected_division'] = detected_division
+    result_df.attrs['summary_prod'] = summary_prod
+    result_df.attrs['summary_media'] = summary_media
+    return result_df
+
 
 # (기존에 작성된 sanitize_column_headers, fast_normalize_text, 
 #  run_cleansing_pipeline, run_ce_product_cleansing 등의 함수들이 이 아래에 위치합니다.)
@@ -594,3 +625,8 @@ def insert_cleaned_left_of_raw(df: pd.DataFrame) -> pd.DataFrame:
             
     if cleaned_set: final_order.extend(list(cleaned_set))
     return df[final_order]
+
+
+
+
+

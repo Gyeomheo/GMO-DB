@@ -1,8 +1,9 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 import hmac
 import os
 import logging
+import base64
 from datetime import datetime
 from src import pipeline, engine, config, utils
 
@@ -52,6 +53,43 @@ def check_password():
             st.error("❌ 인증에 실패했습니다. 올바른 비밀번호를 입력하세요.")
     return False
 
+# --- [Display Helpers] ---
+def style_cleaned_changes(df: pd.DataFrame):
+    """
+    *_cleaned 컬럼 값을 파란색(Blue=255)으로 강조.
+    """
+    df_disp = df.copy()
+    df_disp.attrs = {}
+
+    style_map = pd.DataFrame('', index=df_disp.index, columns=df_disp.columns)
+    cleaned_cols = [c for c in df_disp.columns if c.endswith('_cleaned')]
+    for clean_col in cleaned_cols:
+        style_map.loc[:, clean_col] = 'color: rgb(0, 0, 255);'
+
+    return df_disp.style.apply(lambda _: style_map, axis=None)
+
+
+def render_change_summaries(df_cleaned: pd.DataFrame):
+    summary_media = df_cleaned.attrs.get("summary_media", pd.DataFrame())
+    summary_prod = df_cleaned.attrs.get("summary_prod", pd.DataFrame())
+
+    st.markdown("##### Change Summary")
+    media_col, prod_col = st.columns(2)
+
+    with media_col:
+        st.caption("Media 변경 내역")
+        if isinstance(summary_media, pd.DataFrame) and not summary_media.empty:
+            st.dataframe(style_cleaned_changes(summary_media), use_container_width=True)
+        else:
+            st.info("Media 변경 내역이 없습니다.")
+
+    with prod_col:
+        st.caption("Product 변경 내역")
+        if isinstance(summary_prod, pd.DataFrame) and not summary_prod.empty:
+            st.dataframe(style_cleaned_changes(summary_prod), use_container_width=True)
+        else:
+            st.info("Product 변경 내역이 없습니다.")
+
 # --- [Core Application Logic] ---
 def main():
     if not check_password(): st.stop()
@@ -89,11 +127,53 @@ def main():
                 with st.spinner("Processing Business Logic..."):
                     # pipeline 내부의 load_csv_safely에서 UploadedFile 스트림을 직접 처리함
                     df_cleaned = pipeline.run_smart_process(uploaded_file, selected_div)
+                    detected_div = df_cleaned.attrs.get("detected_division")
+                    if detected_div and detected_div != selected_div:
+                        st.warning(f"Division Selection({selected_div})과 데이터 감지값({detected_div})이 달라 감지값 기준으로 처리했습니다.")
                     st.success("Validation & Mapping Complete.")
-                    st.dataframe(df_cleaned.head(100), use_container_width=True)
-                    st.download_button("📥 Download Cleaned CSV", 
-                                     data=df_cleaned.to_csv(index=False, encoding='utf-8-sig'), 
-                                     file_name=f"CLEANED_{selected_div}.csv", mime='text/csv', use_container_width=True)
+                    render_change_summaries(df_cleaned)
+                    st.markdown("##### Cleaned Result Preview (All Rows)")
+                    preview_df = df_cleaned.copy()
+                    preview_df.attrs = {}
+                    st.dataframe(style_cleaned_changes(preview_df), use_container_width=True)
+
+
+                    # run.py와 동일한 파일명 규칙: cleaned_{MMDD}~_{원본파일명}.csv
+                    date_str = "Unknown"
+                    if 'Date' in df_cleaned.columns:
+                        min_date = pd.to_datetime(df_cleaned['Date'], errors='coerce').min()
+                        if pd.notnull(min_date):
+                            date_str = min_date.strftime("%m%d")
+                    source_stem = os.path.splitext(uploaded_file.name)[0]
+                    download_name = f"cleaned_{date_str}~_{source_stem}.csv"
+
+                    csv_bytes = df_cleaned.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+
+                    # 수동 다운로드 버튼 (fallback)
+                    st.download_button(
+                        "📥 Download Cleaned CSV",
+                        data=csv_bytes,
+                        file_name=download_name,
+                        mime='text/csv',
+                        use_container_width=True,
+                        key="manual_clean_download"
+                    )
+
+                    # 자동 다운로드 (처리 직후 1회)
+                    auto_key = f"{uploaded_file.name}:{selected_div}:{len(df_cleaned)}:{date_str}"
+                    if st.session_state.get("_last_auto_download_key") != auto_key:
+                        b64 = base64.b64encode(csv_bytes).decode('ascii')
+                        st.markdown(
+                            f"""
+                            <a id=\"auto-clean-download\" href=\"data:text/csv;base64,{b64}\" download=\"{download_name}\"></a>
+                            <script>
+                            const link = document.getElementById('auto-clean-download');
+                            if (link) {{ link.click(); }}
+                            </script>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        st.session_state["_last_auto_download_key"] = auto_key
 
     # [3] Data Upload (Smart Sync)
     elif app_mode == "Weekly Report Submission":
@@ -172,3 +252,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
