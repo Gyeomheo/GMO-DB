@@ -1,6 +1,3 @@
-﻿---
-marp: false
----
 
 # GMO_Cleansing Pipeline (클렌징 중심)
 
