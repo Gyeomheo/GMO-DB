@@ -4,7 +4,7 @@ marp: false
 
 # GMO_Cleansing Pipeline (클렌징 중심)
 
-이 문서는 `C:\GMO_Cleansing`의 실제 코드 중 **클렌징 로직**만 설명합니다.  
+이 문서는 실제 코드 중 **클렌징 로직**만 설명합니다.  
 범위: 전처리, 정규화, 매핑, 보정, 리포트용 출력  
 제외: 마스터 업데이트/동기화(`updater.update_smart_db`) 상세
 
